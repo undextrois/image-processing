@@ -128,6 +128,95 @@ class ImageProcessor:
         plt.show()
         
         return stretched
+    
+    def detect_and_rotate_blue_box(self, rotation_angle=45):
+        """
+        Detect the blue box in the image, draw a bounding box around it,
+        crop the region, and rotate it without clipping.
+        """
+        if self.array is None:
+            self.to_numpy_array()
+        
+        # Convert RGB to BGR for OpenCV
+        img_bgr = cv2.cvtColor(self.array, cv2.COLOR_RGB2BGR)
+        
+        # Convert to HSV for better blue detection
+        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        
+        # Define range for blue color (adjust these values based on your blue)
+        lower_blue = np.array([90, 50, 50])
+        upper_blue = np.array([130, 255, 255])
+        
+        # Create mask for blue color
+        mask = cv2.inRange(hsv, lower_blue, upper_blue)
+        
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            print("No blue box detected!")
+            return None
+        
+        # Get the largest contour (assuming it's the blue box)
+        largest_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest_contour)
+        
+        # Draw bounding box on original image
+        img_with_box = self.array.copy()
+        cv2.rectangle(img_with_box, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        
+        # Crop the region of interest
+        roi = self.array[y:y+h, x:x+w].copy()
+        
+        # Get dimensions for rotation without clipping
+        (h_roi, w_roi) = roi.shape[:2]
+        center = (w_roi // 2, h_roi // 2)
+        
+        # Calculate new dimensions to avoid clipping
+        angle_rad = np.radians(rotation_angle)
+        new_w = int(abs(w_roi * np.cos(angle_rad)) + abs(h_roi * np.sin(angle_rad)))
+        new_h = int(abs(w_roi * np.sin(angle_rad)) + abs(h_roi * np.cos(angle_rad)))
+        
+        # Get rotation matrix
+        M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
+        
+        # Adjust translation to account for new dimensions
+        M[0, 2] += (new_w - w_roi) / 2
+        M[1, 2] += (new_h - h_roi) / 2
+        
+        # Rotate with new dimensions
+        rotated = cv2.warpAffine(roi, M, (new_w, new_h), 
+                                 flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_CONSTANT,
+                                 borderValue=(255, 255, 255))
+        
+        # Display results
+        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+        
+        axes[0, 0].imshow(self.array)
+        axes[0, 0].axis('off')
+        axes[0, 0].set_title('Original Image')
+        
+        axes[0, 1].imshow(img_with_box)
+        axes[0, 1].axis('off')
+        axes[0, 1].set_title('Detected Blue Box (ROI)')
+        
+        axes[1, 0].imshow(roi)
+        axes[1, 0].axis('off')
+        axes[1, 0].set_title('Cropped Region')
+        
+        axes[1, 1].imshow(rotated)
+        axes[1, 1].axis('off')
+        axes[1, 1].set_title(f'Rotated {rotation_angle}° (No Clipping)')
+        
+        plt.tight_layout()
+        plt.show()
+        
+        return {
+            'bounding_box': (x, y, w, h),
+            'cropped_roi': roi,
+            'rotated': rotated
+        }
 
 
 # Example usage:
@@ -137,3 +226,8 @@ class ImageProcessor:
 # print(f"Array shape: {array.shape}")
 # processor.show_blue_channel()
 # processor.show_all_channels()
+#
+# # New scaling methods:
+# processor.scale_image_with_factors(fx=0.5, fy=0.5)  # Scale to 50%
+# processor.stretch_image(dim=(600, 600))  # Stretch with default interpolation
+# processor.stretch_image_nearest(dim=(600, 600))  # Stretch with nearest neighbor
